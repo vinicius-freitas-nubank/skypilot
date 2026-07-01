@@ -147,7 +147,8 @@ async def stream_response_async(request_id: Optional[str],
                                 response: 'aiohttp.ClientResponse',
                                 output_stream: Optional['io.TextIOBase'] = None,
                                 resumable: bool = False,
-                                get_result: bool = True) -> Any:
+                                get_result: bool = True,
+                                relay_rich_status: bool = False) -> Any:
     """Async version of stream_response that streams the response to the
     console.
 
@@ -158,6 +159,9 @@ async def stream_response_async(request_id: Optional[str],
             console.
         resumable: Whether the response is resumable on retry. If True, the
             streaming will start from the previous failure point on retry.
+        relay_rich_status: If True, forward encoded rich-status control
+            payloads verbatim to the output instead of rendering a local
+            spinner. See :func:`sky.utils.rich_utils.decode_rich_status`.
 
     Returns:
         Result of request_id if given. Will only return if get_result is True.
@@ -170,7 +174,8 @@ async def stream_response_async(request_id: Optional[str],
     try:
         line_count = 0
 
-        async for line in rich_utils.decode_rich_status_async(response):
+        async for line in rich_utils.decode_rich_status_async(
+                response, relay_rich_status=relay_rich_status):
             if line is not None:
                 line_count += 1
 
@@ -225,6 +230,7 @@ async def stream_and_get(
     tail: Optional[int] = None,
     follow: bool = True,
     output_stream: Optional['io.TextIOBase'] = None,
+    relay_rich_status: bool = False,
 ) -> Any:
     """Streams the logs of a request or a log file and gets the final result.
 
@@ -234,6 +240,9 @@ async def stream_and_get(
     Args:
         request_id: The prefix of the request ID of the request to stream.
         config: Configuration for streaming behavior.
+        relay_rich_status: If True, forward encoded rich-status control
+            payloads verbatim to the output instead of rendering a local
+            spinner. See :func:`sky.utils.rich_utils.decode_rich_status`.
 
     Returns:
         The ``Request Returns`` of the specified request. See the documentation
@@ -278,8 +287,11 @@ async def stream_and_get(
                     return None
                 return await get(request_id)
 
-            return await stream_response_async(request_id, response,
-                                               output_stream)
+            return await stream_response_async(
+                request_id,
+                response,
+                output_stream,
+                relay_rich_status=relay_rich_status)
         finally:
             response.close()
 

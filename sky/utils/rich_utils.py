@@ -436,13 +436,16 @@ def decode_rich_status(
 
 
 async def decode_rich_status_async(
-        response: 'aiohttp.ClientResponse'
-) -> typing.AsyncIterator[Optional[str]]:
+        response: 'aiohttp.ClientResponse',
+        relay_rich_status: bool = False) -> typing.AsyncIterator[Optional[str]]:
     """Async version of rich_utils.decode_rich_status that decodes rich status
     messages from an aiohttp response.
 
     Args:
         response: The aiohttp response.
+        relay_rich_status: If True, encoded rich-status control payloads are
+            forwarded verbatim (yielded as raw lines) instead of being rendered
+            into a local spinner. See ``decode_rich_status``.
 
     Yields:
         Optional[str]: Decoded lines or None for control messages.
@@ -524,6 +527,17 @@ async def decode_rich_status_async(
                 if control == Control.RETRY:
                     raise exceptions.RequestInterruptedError(
                         'Streaming interrupted. Please retry.')
+                if relay_rich_status:
+                    # Forward the encoded payload verbatim instead of rendering
+                    # it locally. Heartbeats are control-plane only and are not
+                    # relayed (they would bloat the log), but we still yield
+                    # None for them so callers can observe forward progress.
+                    # See decode_rich_status.
+                    if control != Control.HEARTBEAT:
+                        yield line
+                    else:
+                        yield None
+                    continue
                 # control is not None, i.e. it is a rich status control message.
                 # In async context, we'll handle rich status controls normally
                 # since async typically runs in main thread

@@ -1,6 +1,7 @@
 import unittest
 from unittest import mock
 
+import pytest
 import requests
 
 from sky.utils import message_utils
@@ -132,3 +133,61 @@ class RichUtilsTest(unittest.TestCase):
         self.assertEqual([r for r in result if r is not None], [])
         # ...but a None is yielded so progress_count still advances.
         self.assertEqual(result, [None])
+
+
+def _mock_aiohttp_response(chunks):
+    """Build a mock aiohttp response yielding the given byte chunks."""
+
+    async def iter_chunks():
+        for chunk in chunks:
+            yield chunk, True
+
+    response = mock.MagicMock()
+    response.content.iter_chunks = iter_chunks
+    return response
+
+
+@pytest.mark.asyncio
+async def test_decode_rich_status_async_relay_forwards_payloads_verbatim():
+    """relay_rich_status should forward encoded payloads as raw lines."""
+    status = rich_utils.EncodedStatusMessage('Launching')
+    init_line = status.init()
+    update_line = status.update('Preparing SkyPilot runtime (1/3)')
+    exit_line = status.exit()
+    chunks = [
+        b'Some provisioning log line\n',
+        init_line.encode('utf-8'),
+        update_line.encode('utf-8'),
+        exit_line.encode('utf-8'),
+    ]
+    response = _mock_aiohttp_response(chunks)
+
+    result = [
+        line async for line in rich_utils.decode_rich_status_async(
+            response, relay_rich_status=True)
+    ]
+    # The plain log line plus every (non-heartbeat) control payload should
+    # be forwarded verbatim so a downstream reader can re-render the
+    # spinner.
+    assert 'Some provisioning log line\n' in result
+    assert init_line in result
+    assert update_line in result
+    assert exit_line in result
+    assert None not in result
+
+
+@pytest.mark.asyncio
+async def test_decode_rich_status_async_relay_drops_heartbeat():
+    """Heartbeats are not relayed, but still yield None."""
+    heartbeat = message_utils.encode_payload(
+        rich_utils.Control.HEARTBEAT.encode(''))
+    response = _mock_aiohttp_response([heartbeat.encode('utf-8')])
+
+    result = [
+        line async for line in rich_utils.decode_rich_status_async(
+            response, relay_rich_status=True)
+    ]
+    # The encoded heartbeat line is not relayed, but a None is yielded so
+    # callers can observe forward progress.
+    assert heartbeat not in result
+    assert result == [None]

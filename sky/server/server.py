@@ -2601,11 +2601,17 @@ async def api_status(
         encoded_request_tasks = []
         for request_id in request_ids:
             request_tasks = await requests_lib.get_requests_async_with_prefix(
-                request_id)
+                request_id, fields=fields)
             if request_tasks is None:
                 continue
-            for request_task in request_tasks:
-                encoded_request_tasks.append(request_task.readable_encode())
+            if fields:
+                # Field-projected rows have stubbed values for the fields
+                # that were not requested; encode_requests handles them.
+                encoded_request_tasks.extend(
+                    requests_lib.encode_requests(request_tasks))
+            else:
+                for request_task in request_tasks:
+                    encoded_request_tasks.append(request_task.readable_encode())
         return encoded_request_tasks
 
 
